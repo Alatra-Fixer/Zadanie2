@@ -8,7 +8,7 @@ docker build --no-cache -t pogoda:latest .
 
 - uruchomienie obrazu:
 ```bash
-docker run -p 8080:8080 pogoda:latest.
+docker run -p 8080:8080 pogoda:latest .
 ```
 
 

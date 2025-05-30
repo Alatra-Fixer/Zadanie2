@@ -1,3 +1,17 @@
+# Zadanie1
+Dockerfile w poprzedniej wersji nie działał i nie dało się zbudować obrazu, w tej wersji zostało to naprawione
+
+- budowanie obrazu:
+```bash
+docker build --no-cache -t pogoda:latest .
+```
+
+- uruchomienie obrazu:
+```bash
+docker run -p 8080:8080 pogoda:latest.
+```
+
+
 # Zadanie2
 ---
 ### 1. Checkout kodu źródłowego  
@@ -57,6 +71,4 @@ Po pozytywnym wyniku testów CVE następuje krok **"Apply final tags and push im
 Na zakończenie pipeline wykonuje opcjonalny krok **"Cleanup candidate tag"**, który usuwa obraz oznaczony jako candidate z lokalnego repozytorium. Pozwala to zachować porządek i zmniejszyć użycie pamięci na serwerze buildującym.
 
 ---
-
-- **Strategia tagowania:** Połączenie tagów opartych na SHA (precyzyjny, unikalny identyfikator stanu kodu) z tagami semantycznymi (przyjazne wersjonowanie) daje elastyczność przy zarządzaniu obrazami. Umożliwia to śledzenie zmian i łatwiejsze zarządzanie wersjami aplikacji, co widoczne jest w dwupoziomowym systemie tagowania.
 

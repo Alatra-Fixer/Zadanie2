@@ -12,30 +12,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Pobranie kodu źródłowego
+      # Checkout kodu źródłowego
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Konfiguracja QEMU dla budowania multiarch
+      # Ustawienie QEMU dla multiarchitektury
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v3
 
-      # Konfiguracja Buildx
+      # Konfiguracja Docker Buildx
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Generowanie metadanych i finalnych tagów obrazu
+      # Generowanie metadanych i tagów obrazu
       - name: Docker metadata definitions
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/app-name
+          images: ghcr.io/alatra-fixer/pogoda
           flavor: latest=false
           tags: |
             type=sha,priority=100,prefix=sha-,format=short
             type=semver,priority=200,pattern={{version}}
-      
-      # Logowanie do DockerHub – wykorzystywane tylko do cache'owania
+
+      # Logowanie do DockerHub (dla cache)
       - name: Login to DockerHub for cache
         uses: docker/login-action@v3
         with:
@@ -48,10 +48,10 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.RAFALHUB_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Budowanie obrazu dla wielu architektur (linux/amd64, linux/arm64)
-      # Budujemy obraz z tagiem tymczasowym "candidate"
+      # Budujemy z tagiem "candidate", który następnie zostanie zeskanowany
       - name: Build Docker image (candidate tag)
         id: build
         uses: docker/build-push-action@v5
@@ -60,36 +60,33 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          # Używamy tylko tagu candidate – finalne tagi zostaną dodane po pozytywnym teście CVE
-          tags: ghcr.io/${{ github.repository_owner }}/app-name:candidate
+          tags: ghcr.io/alatra-fixer/pogoda:candidate
           cache-from: |
-            type=registry,ref=${{ vars.DOCKERHUB_USERNAME }}/app-name:cache
+            type=registry,ref=${{ vars.DOCKERHUB_USERNAME }}/pogoda:cache
           cache-to: |
-            type=registry,ref=${{ vars.DOCKERHUB_USERNAME }}/app-name:cache,mode=max
+            type=registry,ref=${{ vars.DOCKERHUB_USERNAME }}/pogoda:cache,mode=max
 
-      # Testowanie obrazu pod kątem luk CVE
+      # Skanowanie obrazu za pomocą Trivy pod kątem luk CVE
       - name: Scan image for vulnerabilities using Trivy
         id: scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/app-name:candidate
+          image-ref: ghcr.io/alatra-fixer/pogoda:candidate
           severity: CRITICAL,HIGH
           exit-code: '1'
 
-      # Retagowanie obrazu candidate do finalnych tagów oraz wypchnięcie ich do GHCR
+      # Retagowanie obrazu candidate do finalnych tagów i wypchnięcie go do GHCR
       - name: Apply final tags and push image
         if: success()
         run: |
-          # Upewniamy się, że najnowszy obraz candidate jest dostępny lokalnie
-          docker pull ghcr.io/${{ github.repository_owner }}/app-name:candidate
-          # Przetwarzamy wszystkie finalne tagi wygenerowane przez metadata-action
+          docker pull ghcr.io/alatra-fixer/pogoda:candidate
           for tag in $(echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n'); do
             echo "Retagging image as $tag"
-            docker tag ghcr.io/${{ github.repository_owner }}/app-name:candidate $tag
+            docker tag ghcr.io/alatra-fixer/pogoda:candidate $tag
             docker push $tag
           done
 
-      # (Opcjonalnie) Usunięcie tagu candidate z repozytorium lokalnego
+      # Opcjonalne czyszczenie tagu candidate z lokalnego repozytorium
       - name: Cleanup candidate tag
         if: success()
-        run: docker rmi ghcr.io/${{ github.repository_owner }}/app-name:candidate
+        run: docker rmi ghcr.io/alatra-fixer/pogoda:candidate

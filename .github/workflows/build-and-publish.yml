@@ -1,65 +1,95 @@
-name: Build and Publish Docker Image
+name: Build, Scan & Push Docker Image to GHCR
 
 on:
+  workflow_dispatch:
   push:
-    branches:
-      - main  # pipeline uruchamiany przy pushu na branch "main"
+    tags:
+      - 'v*'
 
 jobs:
-  build:
-    name: Build, Scan & Publish
+  build_and_scan:
+    name: Build multiarch image, test CVE and push to GHCR
     runs-on: ubuntu-latest
 
     steps:
       # Pobranie kodu źródłowego
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      # Umożliwia emulację wielu architektur (wymagane dla buildx)
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+      # Konfiguracja QEMU dla budowania multiarch
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
 
-      # Konfiguracja Docker Buildx
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v2
+      # Konfiguracja Buildx
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      # Logowanie do DockerHub – dane potrzebne do przechowywania cache
-      - name: Log in to DockerHub
-        uses: docker/login-action@v2
+      # Generowanie metadanych i finalnych tagów obrazu
+      - name: Docker metadata definitions
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/app-name
+          flavor: latest=false
+          tags: |
+            type=sha,priority=100,prefix=sha-,format=short
+            type=semver,priority=200,pattern={{version}}
+      
+      # Logowanie do DockerHub – wykorzystywane tylko do cache'owania
+      - name: Login to DockerHub for cache
+        uses: docker/login-action@v3
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Logowanie do GitHub Container Registry
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v2
+      # Logowanie do GitHub Container Registry (ghcr.io)
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
+          username: ${{ github.actor }}
           password: ${{ secrets.RAFALHUB_TOKEN }}
 
-      # Budowanie obrazu przy użyciu multi-arch i zdalnego cache
-      - name: Build and push Docker image
-        id: build-and-push
-        uses: docker/build-push-action@v3
+      # Budowanie obrazu dla wielu architektur (linux/amd64, linux/arm64)
+      # Budujemy obraz z tagiem tymczasowym "candidate"
+      - name: Build Docker image (candidate tag)
+        id: build
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          # Przyjęta strategia tagowania: "latest" oraz commit SHA
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/pogoda:latest
-            ghcr.io/${{ github.repository_owner }}/pogoda:${{ github.sha }}
-          # Użycie cache – wysłanie i pobranie danych z repozytorium na DockerHub
-          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/my-cache:cache,mode=max
-          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/my-cache:cache,mode=max
+          # Używamy tylko tagu candidate – finalne tagi zostaną dodane po pozytywnym teście CVE
+          tags: ghcr.io/${{ github.repository_owner }}/app-name:candidate
+          cache-from: |
+            type=registry,ref=${{ vars.DOCKERHUB_USERNAME }}/app-name:cache
+          cache-to: |
+            type=registry,ref=${{ vars.DOCKERHUB_USERNAME }}/app-name:cache,mode=max
 
-      # Skanowanie obrazu pod kątem CVE – pipeline zakończy się błędem, gdy wykryte zostaną zagrożenia CRITICAL lub HIGH
-      - name: Vulnerability scanning with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+      # Testowanie obrazu pod kątem luk CVE
+      - name: Scan image for vulnerabilities using Trivy
+        id: scan
+        uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/pogoda:latest
+          image-ref: ghcr.io/${{ github.repository_owner }}/app-name:candidate
           severity: CRITICAL,HIGH
-          exit-code: 1
+          exit-code: '1'
+
+      # Retagowanie obrazu candidate do finalnych tagów oraz wypchnięcie ich do GHCR
+      - name: Apply final tags and push image
+        if: success()
+        run: |
+          # Upewniamy się, że najnowszy obraz candidate jest dostępny lokalnie
+          docker pull ghcr.io/${{ github.repository_owner }}/app-name:candidate
+          # Przetwarzamy wszystkie finalne tagi wygenerowane przez metadata-action
+          for tag in $(echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n'); do
+            echo "Retagging image as $tag"
+            docker tag ghcr.io/${{ github.repository_owner }}/app-name:candidate $tag
+            docker push $tag
+          done
+
+      # (Opcjonalnie) Usunięcie tagu candidate z repozytorium lokalnego
+      - name: Cleanup candidate tag
+        if: success()
+        run: docker rmi ghcr.io/${{ github.repository_owner }}/app-name:candidate

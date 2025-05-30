@@ -48,7 +48,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.RAFALHUB_TOKEN }}
 
       # Budowanie obrazu dla wielu architektur (linux/amd64, linux/arm64)
       # Budujemy z tagiem "candidate", który następnie zostanie zeskanowany

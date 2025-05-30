@@ -37,7 +37,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.RAFALHUB_TOKEN }}
 
       # Budowanie obrazu przy użyciu multi-arch i zdalnego cache
       - name: Build and push Docker image
